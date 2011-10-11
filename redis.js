@@ -1,68 +1,111 @@
-var redis = require('node-redis')
-  , LittleBigEventEmitter = require('./').LittleBigEventEmitter
+var EventEmitter  = require('events').EventEmitter
   , inherits      = require('util').inherits
   , u             = require('ubelt')
+  , Redis         = require('redis-raw').Redis
   
-exports.EventEmitter = RedisEventEmitter
 exports.RedisEventEmitter = RedisEventEmitter
+exports.EventEmitter = RedisEventEmitter
 
-inherits(RedisEventEmitter, LittleBigEventEmitter)
+//
+// same API as EventEmitter, but with redis
+//
 
-function createClient (opts) {
-  return redis.createClient(opts.port || 6379, opts.host || 'localhost', opts.auth)
+/************
+ querks:
+ 
+ redis cannot listen for events and publish events on the same connection.
+
+
+*/
+
+function connect (opts, cb) {
+  return Redis(opts.port || 6379, opts.host,function (err, redis) {
+    if(err) return cb(err)
+    
+    if(opts.auth)
+      redis.req(['AUTH', opts.auth], function (err) {
+        if(err) return cb(err)
+          callback(null, redis)        
+      })
+    else
+      callback(null, redis)
+  })
 }
 
 function RedisEventEmitter (opts) {
-  if(!(this instanceof RedisEventEmitter ))
-    return new RedisEventEmitter (opts)
-  LittleBigEventEmitter.call(this)
-
-  console.error(this.__proto__.__proto__)
-
-  this._opts = opts || {}
-  this._subscriptions = {}
-  var self = this
-  var c = 0
-  function onConnect () {
-    console.error('connection')
-    c ++
-    if(c == 2)
-      self._emit('connect')
+  if(!(this instanceof RedisEventEmitter )) return new RedisEventEmitter(opts)
+  var ree = this
+    , l = null
+    , e = null
+  //EventEmitter.call(this)  
+  var emitter = new EventEmitter()
+  function emitError (err, reply) {
+    if(err) emitter.emit(err)
   }
-  //need two clients to be able to emit and listen
-  this._listener = createClient(this._opts)
-  this._emitter = createClient(this._opts)
-  this._listener.on('connect', onConnect)
-  this._emitter.on('connect', onConnect)
-}
 
-RedisEventEmitter.prototype._remoteOn = function (event, listener) {
-  consol.error(event, listener)
-  var self = this
-  if(!this._listener) this._listener = createClient(this._opts)
-  if(!this._subscriptions[event]) {
-    this._listener.subscribe(event)
-    this._listener.on(event, function (json) {
-      self._emit.apply(null, [event].concat(JSON.parse))
-    })
+  ree.addListener = ree.on = function (event, func) {
+    if(!l) {
+      l = connect(emitError)
+      l.onMessage = function (event, args) {
+        try { args = JSON.parse(args) } catch (_err) {err = _err}
+        args.unshift(event)
+        emitter.emit.apply(emitter, args)
+      }
+    }
+    //subscribe on the backend if we arn't already
+    if(!emitter.listeners(event).length)
+      l.req(['SUBSCRIBE', event], emitError)
+    emitter.on(event, func)
   }
-  this._subscriptions[event] = (this._subscriptions[event] || 0) + 1
-  this._on(event, listener)
+
+  ree.emit = function () {
+    var args = [].slice.call(arguments)
+      , event = args.shift()
+    if(!e) {
+      e = connect(emitError)
+    }
+    e.req(['PUBLISH', event, JSON.stringify(args)], emitError)   
+  }
+
+  ree.removeListener = function (event, listener) {
+    emitter.removeListener(event, listener)
+    if(!emitter.listeners(event).length)
+      l.req(['UNSUBSCRIBE', event], emitError)
+  }
+
+  ree.removeAllListeners = function (event) {
+    emitter.removeAllListener(event)
+     l.req(
+      ( event ? ['UNSUBSCRIBE', event]
+              : ['UNSUBSCRIBE'] )
+      , emitError)
+  }
+
+  ree.end = function () {
+    if(l) l.socket.end(), l = null
+    if(e) e.socket.end(), e = null
+  }
+  ree.destroy = function () {
+    if(l) l.socket.destroy(), l = null
+    if(e) e.socket.destroy(), e = null
+  }
 }
 
-//RedisEventEmitter.prototype.addListener = RedisEventEmitter.prototype.on
+if(!module.parent) {
+  var r = new RedisEventEmitter()
+  
+  r.on('hello', console.error)
+  r.on('goodbye', function () {
+    r.end && r.end () //keep thing as expressions
+    console.error('goodbye')
+  })
+  
+  var emit = u.delay(
+  r.emit.bind(r)
+  , 0)
 
-RedisEventEmitter.prototype._remoteEmit = function () {
-  var args = [].slice.call(arguments)
-    , event = args.shift()
-  //redis requires two connections if you are subscribing and publishing.
-  if(!this._emitter) this._emitter = createClient(this._opts)
-  
-  var emitter = this._emitter
-  
-  emitter.publish(event, JSON.stringify(args))
-}
-
-RedisEventEmitter.prototype.removeAllListeners = function () {
-  
+  emit('hello', 'eonutonte')
+  emit('hello', Math.random())
+  emit('hello', [1,2,3])
+  emit('goodbye')
 }

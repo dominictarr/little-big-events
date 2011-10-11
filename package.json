@@ -5,7 +5,10 @@
 , "repository": 
   { "type": "git"
   , "url": "https://github.com/dominictarr/little-big-events.git" }
-, "dependencies": {}
+, "dependencies": {
+    "ubelt": "~2.1",
+    "redis-raw": "~0.0.1"
+  }
 , "devDependencies": {}
 , "author": "Dominic Tarr <dominic.tarr@gmail.com> (http://bit.ly/dominictarr)"
 , "scripts": { "test": "meta-test test/*.js" } }

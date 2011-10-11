@@ -141,11 +141,13 @@ all that is needed is a create function that returns an object with these 5 meth
   connect to backend
   * `disconnect (ready)`  
   disconnect from backend
-  * `emit (eventName, data)`  
-  send event to backend. there will not be more that 2 args.
-  * `listen (eventName, listener)`  
+  * `emit (eventName, data, callback)`  
+  send event to backend. callback must be called when backend has recieved event.
+  if an error has occured, this event will be retried later.
+  * `listen (eventName, listener, callback)`  
   register a listener. note it is only necessary to register one listener.
   LittleBigEventListener will not call listen more that once for the same event name.
+  if callback returns an error, registering this listener will be retried later.
   if `listener` is called twice with the same eventName it is okay to throw.
   * `unlisten (eventName, listener)`  
   if necessary, deregister the event on the backend.
